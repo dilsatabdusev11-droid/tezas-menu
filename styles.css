@@ -459,7 +459,91 @@ main {
 .sheet__gift { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--yellow); font-weight: 800; font-size: 15px; }
 .sheet__gift.pending { background: var(--paper); font-weight: 700; }
 .sheet__hint { margin: 14px 0 0; color: var(--grey); font-size: 14px; font-weight: 600; }
+.sheet__hint[hidden] { display: none; }
 .sheet__clear { margin-top: 10px; min-height: 44px; padding: 0; border: 0; background: none; color: var(--red-deep); font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- Оформление заказа ---------- */
+.checkout { margin-top: 18px; display: grid; gap: 16px; }
+.checkout[hidden], .pay__opt[hidden] { display: none; }
+.pay.single { grid-template-columns: 1fr; }
+.checkout fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.checkout legend { padding: 0; margin-bottom: 8px; font-weight: 900; font-style: italic; font-size: 16px; text-transform: uppercase; }
+
+/* Переключатель «За столиком / Навынос» */
+.seg { display: grid !important; grid-template-columns: 1fr 1fr; gap: 0; }
+.seg legend { grid-column: 1 / -1; }
+.seg label { position: relative; }
+.seg input, .pay input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 10px;
+  border: 2px solid var(--ink);
+  font-weight: 800; font-size: 15px; text-align: center;
+  transition: background-color .2s, color .2s;
+}
+.seg label:first-of-type span { border-radius: 14px 0 0 14px; }
+.seg label:last-of-type span { border-radius: 0 14px 14px 0; border-left: 0; }
+.seg input:checked + span { background: var(--ink); color: var(--yellow); }
+.seg input:focus-visible + span, .pay input:focus-visible + .pay__box { outline: 3px solid var(--yellow); outline-offset: 2px; }
+
+.field { display: grid; gap: 6px; }
+.field[hidden] { display: none; }
+.field label { font-weight: 800; font-size: 14px; }
+.field input {
+  width: 100%; min-height: 52px; padding: 0 16px;
+  border: 2px solid var(--ink); border-radius: 14px;
+  background: var(--white);
+  font: 900 italic 24px var(--font); letter-spacing: .04em;
+}
+.field input:focus { outline: 3px solid var(--yellow); outline-offset: 1px; }
+
+/* Способ оплаты */
+.pay { display: grid !important; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pay legend { grid-column: 1 / -1; }
+.pay__opt { position: relative; }
+.pay__box {
+  display: flex; flex-direction: column; gap: 3px; height: 100%;
+  min-height: 72px; padding: 12px 14px;
+  border: 2px solid var(--line); border-radius: 14px; background: var(--white);
+  transition: border-color .2s, box-shadow .2s;
+}
+.pay__box b { font-weight: 900; font-size: 16px; }
+.pay__box small { color: var(--grey); font-weight: 600; font-size: 12.5px; line-height: 1.3; }
+.pay input:checked + .pay__box { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.pay input[value="kaspi"]:checked + .pay__box b { color: var(--red-deep); }
+
+.checkout__test { margin: -4px 0 0; padding: 8px 12px; border-radius: 10px; background: #fff4cc; font-size: 13px; font-weight: 700; }
+.checkout__error { margin: 0; min-height: 0; color: var(--red-deep); font-weight: 800; font-size: 14px; }
+.checkout__error:empty { display: none; }
+
+.cta {
+  min-height: 58px; width: 100%;
+  border: 0; border-radius: 16px;
+  background: var(--red); color: var(--white);
+  font: 900 italic 19px var(--font); letter-spacing: -.01em;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform .15s, box-shadow .15s, background-color .2s;
+}
+.cta:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+.cta:disabled { background: #b5544f; cursor: progress; }
+.checkout.busy .cta span::after { content: ""; display: inline-block; width: 16px; height: 16px; margin-left: 10px; vertical-align: -2px; border: 3px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Плашка текущего заказа */
+.myorder {
+  position: fixed; z-index: 25; top: 12px; left: 50%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 6px 16px;
+  border-radius: 999px; background: var(--ink); color: var(--white);
+  text-decoration: none; font-size: 14px; font-weight: 700;
+  box-shadow: 0 8px 20px -8px rgba(0,0,0,.5);
+}
+.myorder[hidden] { display: none; }
+.myorder b { color: var(--yellow); font-weight: 900; font-style: italic; }
+.myorder.ready { background: var(--yellow); color: var(--ink); }
+.myorder.ready b { color: var(--red-deep); }
+.tabs { top: 0; }
+.loadfail { padding: 40px 0; text-align: center; font-weight: 800; }
 
 /* ---------- Движение ----------
    Токены: вход — пружина, выход быстрее входа, шаг волны 45 мс.

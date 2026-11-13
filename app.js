@@ -1,5 +1,13 @@
-(() => {
-  const D = window.TEZAS;
+(async () => {
+  let D;
+  try {
+    D = await (await fetch("menu.json", { cache: "no-cache" })).json();
+  } catch {
+    document.getElementById("menu").innerHTML =
+      '<p class="loadfail">Мәзір жүктелмеді. Бетті жаңартыңыз.<br>Меню не загрузилось. Обновите страницу.</p>';
+    return;
+  }
+  const API = window.TEZAS_API;
   const T = {
     kk: {
       slogan: "Қайта-қайта татқың келетін дәм!",
@@ -15,11 +23,29 @@
       left: (n) => `Лимонадқа дейін тағы ${n}`,
       gift: "Лимонад 0,4 л — сыйлыққа!",
       giftPending: (n) => `Тағы ${n} қосыңыз — 0,4 л лимонад сыйлыққа беріледі.`,
-      giftDone: "Сізге 0,4 л лимонад сыйлыққа беріледі. Кассада атап өтіңіз.",
+      giftDone: "0,4 л лимонад тапсырысқа сыйлық ретінде қосылады.",
       items: (n) => `${n} позиция`,
       tabsLabel: "Санаттар",
       remove: "Азайту",
-      more: "Көбейту"
+      more: "Көбейту",
+      whereEat: "Қайда жейсіз?",
+      atTable: "Үстел басында",
+      takeaway: "Алып кету",
+      tableNo: "Үстел нөмірі",
+      payment: "Төлем",
+      kaspiSub: "Кассада Kaspi QR арқылы",
+      cardOnline: "Картамен онлайн",
+      cardSub: "Halyk · Visa, Mastercard",
+      testMode: "Тест режимі: ақша есептен шығарылмайды.",
+      payCard: (n) => `${n} төлеу`,
+      sendKaspi: "Тапсырыс беру",
+      sending: "Жіберілуде…",
+      needTable: "Үстел нөмірін енгізіңіз (1–200).",
+      errNet: "Байланыс жоқ. Қайталап көріңіз.",
+      errGeneric: "Тапсырыс жіберілмеді. Қайталап көріңіз.",
+      errHalyk: "Төлем беті ашылмады. Kaspi-ді таңдаңыз немесе кейінірек қайталаңыз.",
+      myOrder: (n) => `Тапсырыс №${n}`,
+      st: { awaiting_payment: "төлем күтілуде", paid: "қабылданды", cooking: "дайындалуда", ready: "дайын!" }
     },
     ru: {
       slogan: "Вкус, который хочется повторить!",
@@ -35,11 +61,29 @@
       left: (n) => `Ещё ${n} до лимонада в подарок`,
       gift: "Лимонад 0,4 л — в подарок!",
       giftPending: (n) => `Добавьте ещё на ${n} — и лимонад 0,4 л в подарок.`,
-      giftDone: "Вам положен лимонад 0,4 л в подарок. Напомните на кассе.",
+      giftDone: "Лимонад 0,4 л добавим к заказу в подарок.",
       items: (n) => `${n} ${plural(n, "позиция", "позиции", "позиций")}`,
       tabsLabel: "Категории",
       remove: "Убрать одну",
-      more: "Добавить ещё"
+      more: "Добавить ещё",
+      whereEat: "Где будете есть?",
+      atTable: "За столиком",
+      takeaway: "Навынос",
+      tableNo: "Номер столика",
+      payment: "Оплата",
+      kaspiSub: "На кассе по Kaspi QR",
+      cardOnline: "Картой онлайн",
+      cardSub: "Halyk · Visa, Mastercard",
+      testMode: "Тестовый режим: деньги не списываются.",
+      payCard: (n) => `Оплатить ${n}`,
+      sendKaspi: "Оформить заказ",
+      sending: "Отправляем…",
+      needTable: "Укажите номер столика (1–200).",
+      errNet: "Нет связи. Попробуйте ещё раз.",
+      errGeneric: "Не удалось оформить заказ. Попробуйте ещё раз.",
+      errHalyk: "Страница оплаты не открылась. Выберите Kaspi или попробуйте позже.",
+      myOrder: (n) => `Заказ №${n}`,
+      st: { awaiting_payment: "ждёт оплаты", paid: "принят", cooking: "готовится", ready: "готов!" }
     }
   };
   function plural(n, one, few, many) {
@@ -71,6 +115,14 @@
   try { cart = JSON.parse(localStorage.getItem("tezas-cart") || "{}"); } catch { cart = {}; }
   Object.keys(cart).forEach((k) => { if (!sku[k] || !(cart[k] > 0)) delete cart[k]; });
   const save = () => localStorage.setItem("tezas-cart", JSON.stringify(cart));
+
+  // ---------- Столик из QR-кода: ?table=5 ----------
+  const qs = new URLSearchParams(location.search);
+  const tableFromUrl = parseInt(qs.get("table") || qs.get("t") || "", 10);
+  if (tableFromUrl >= 1 && tableFromUrl <= 200) sessionStorage.setItem("tezas-table", String(tableFromUrl));
+
+  let orders = [];
+  try { orders = JSON.parse(localStorage.getItem("tezas-orders") || "[]"); } catch { orders = []; }
 
   // ---------- Рендер ----------
   function addBtn(id, label) {
@@ -161,6 +213,7 @@
     $("#cupFill").setAttribute("y", String(40 - 31 * p));
 
     $("#sheetSum").textContent = money(sum);
+    updateCheckout();
     const gift = $("#sheetGift");
     gift.textContent = left > 0 ? t.giftPending(money(left)) : t.giftDone;
     gift.classList.toggle("pending", left > 0);
@@ -241,6 +294,120 @@
       if (first) setActive(first.id);
     }, { rootMargin: "-80px 0px -55% 0px" });
     D.categories.forEach((c) => io.observe(document.getElementById(c.id)));
+  }
+
+  // ---------- Оформление заказа ----------
+  let config = { halyk: "test" };
+  let sending = false;
+  const form = $("#checkout");
+  const fieldVal = (name) => (form.querySelector(`[name="${name}"]:checked`) || {}).value;
+
+  function updateCheckout() {
+    const t = T[lang];
+    const { sum } = totals();
+    const mode = fieldVal("mode"), provider = fieldVal("provider");
+    $("#tableField").hidden = mode !== "table";
+    $("#testMode").hidden = !(provider === "halyk" && config.halyk === "test");
+    $("#submitLabel").textContent = sending ? t.sending : provider === "halyk" ? t.payCard(money(sum)) : t.sendKaspi;
+    $("#submitOrder").disabled = sending;
+    form.classList.toggle("busy", sending);
+  }
+
+  function showError(msg) {
+    const el = $("#checkoutError");
+    el.textContent = msg || "";
+    if (msg && !reduced()) el.animate([{ transform: "translateX(-6px)" }, { transform: "translateX(6px)" }, { transform: "none" }], { duration: 260 });
+  }
+
+  function loadScript(src) {
+    return new Promise((ok, bad) => {
+      const sc = document.createElement("script");
+      sc.src = src; sc.onload = ok; sc.onerror = bad;
+      document.head.appendChild(sc);
+    });
+  }
+
+  function rememberOrder(o) {
+    orders = [{ id: o.id, number: o.number, at: Date.now() }, ...orders.filter((x) => x.id !== o.id)].slice(0, 5);
+    localStorage.setItem("tezas-orders", JSON.stringify(orders));
+  }
+
+  async function submitOrder(e) {
+    e.preventDefault();
+    if (sending) return;
+    const t = T[lang];
+    showError("");
+    const mode = fieldVal("mode"), provider = fieldVal("provider");
+    const table = parseInt($("#tableNo").value, 10);
+    if (mode === "table" && !(table >= 1 && table <= 200)) { showError(t.needTable); $("#tableNo").focus(); return; }
+    sessionStorage.setItem("tezas-table", mode === "table" ? String(table) : sessionStorage.getItem("tezas-table") || "");
+
+    sending = true; updateCheckout();
+    try {
+      const r = await fetch(`${API}/orders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mode, provider, lang, table: mode === "table" ? table : null,
+          items: Object.entries(cart).map(([id, qty]) => ({ id, qty }))
+        })
+      });
+      const res = await r.json().catch(() => ({}));
+      if (!r.ok || !res.order) throw new Error(res.error || "http_" + r.status);
+      rememberOrder(res.order);
+      if (res.payment && res.payment.type === "halyk") {
+        try {
+          await loadScript(res.payment.script);
+          window.halyk.pay(res.payment.paymentObject);
+        } catch {
+          showError(t.errHalyk);
+          sending = false; updateCheckout();
+        }
+        return;
+      }
+      location.href = `order.html?id=${res.order.id}`;
+    } catch (err) {
+      showError(err instanceof TypeError ? t.errNet : err.message === "halyk_unavailable" ? t.errHalyk : t.errGeneric);
+      sending = false; updateCheckout();
+    }
+  }
+
+  form.addEventListener("change", () => { showError(""); updateCheckout(); });
+  form.addEventListener("submit", submitOrder);
+  $("#tableNo").value = sessionStorage.getItem("tezas-table") || "";
+  $("#tableNo").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 3); });
+  // Вернулись с платёжной страницы кнопкой «назад» — снять блокировку
+  addEventListener("pageshow", () => { sending = false; updateCheckout(); });
+
+  // Заказ с сайта включается, только когда кухня готова (задан PIN экрана кухни).
+  // Оплата картой видна гостям только в боевом режиме Halyk; тест — по ссылке с ?test=1.
+  const testFlag = qs.has("test");
+  fetch(`${API}/config`).then((r) => r.json()).then((c) => {
+    config = c;
+    const ordering = Boolean(c.kitchen) || testFlag;
+    form.hidden = !ordering;
+    $("#cashierHint").hidden = ordering;
+    $("#cardOption").hidden = !(c.halyk === "prod" || testFlag);
+    $("#cardOption").closest(".pay").classList.toggle("single", $("#cardOption").hidden);
+    updateCheckout();
+  }).catch(() => {});
+
+  // Плашка «Заказ №12 — готовится» для последнего заказа за 3 часа
+  async function showMyOrder() {
+    const last = orders.find((o) => Date.now() - o.at < 3 * 3600_000);
+    const chip = $("#myOrder");
+    if (!last) { chip.hidden = true; return; }
+    try {
+      const r = await fetch(`${API}/orders/${last.id}`);
+      if (!r.ok) return;
+      const { order } = await r.json();
+      const st = T[lang].st[order.status];
+      if (!st) { chip.hidden = true; return; }
+      chip.href = `order.html?id=${order.id}`;
+      chip.innerHTML = `<b>${esc(T[lang].myOrder(order.number))}</b><span>${esc(st)}</span>`;
+      chip.classList.toggle("ready", order.status === "ready");
+      chip.hidden = false;
+    } catch { /* нет связи — просто не показываем */ }
   }
 
   // ---------- Анимации ----------
@@ -372,7 +539,7 @@
     if (l && l.dataset.lang !== lang) {
       lang = l.dataset.lang; localStorage.setItem("tezas-lang", lang);
       revealAll = true;
-      renderStatic(); renderMenu(); renderTray();
+      renderStatic(); renderMenu(); renderTray(); showMyOrder();
       return;
     }
     if (e.target.closest("#trayOpen")) return openSheet();
@@ -393,5 +560,6 @@
   renderMenu();
   prevSum = totals().sum;
   renderTray();
+  showMyOrder();
   addEventListener("resize", () => { const a = $('.tab[aria-current="true"]'); a && movePill(a); });
 })();

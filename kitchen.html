@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<title>TEZAS — кухня</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="kitchen.css">
+</head>
+<body>
+<section class="login" id="login">
+  <form id="pinForm" class="login__box" autocomplete="off">
+    <p class="brand"><span class="tez">TEZ</span>AS <small>кухня</small></p>
+    <label for="pin">PIN-код</label>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" required>
+    <p class="login__err" id="pinErr" role="alert"></p>
+    <button type="submit">Войти</button>
+  </form>
+</section>
+
+<section class="board" id="board" hidden>
+  <header class="top">
+    <p class="brand"><span class="tez">TEZ</span>AS <small>кухня</small></p>
+    <p class="clock" id="clock"></p>
+    <p class="net" id="net" hidden>Нет связи — пробуем снова</p>
+    <button type="button" id="soundBtn" class="ghost" aria-pressed="true">Звук: вкл</button>
+    <button type="button" id="logout" class="ghost">Выйти</button>
+  </header>
+  <main class="cols" id="cols"></main>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="config.js"></script>
+<script src="kitchen.js"></script>
+</body>
+</html>

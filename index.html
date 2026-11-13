@@ -111,12 +111,40 @@
     <ul class="sheet__list" id="sheetList"></ul>
     <div class="sheet__total"><span data-t="total"></span><strong id="sheetSum"></strong></div>
     <p class="sheet__gift" id="sheetGift"></p>
-    <p class="sheet__hint" data-t="showCashier"></p>
+    <p class="sheet__hint" id="cashierHint" data-t="showCashier"></p>
+
+    <form class="checkout" id="checkout" novalidate hidden>
+      <fieldset class="seg">
+        <legend data-t="whereEat"></legend>
+        <label><input type="radio" name="mode" value="table" checked><span data-t="atTable"></span></label>
+        <label><input type="radio" name="mode" value="pickup"><span data-t="takeaway"></span></label>
+      </fieldset>
+      <div class="field" id="tableField">
+        <label for="tableNo" data-t="tableNo"></label>
+        <input id="tableNo" name="table" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off">
+      </div>
+      <fieldset class="pay">
+        <legend data-t="payment"></legend>
+        <label class="pay__opt">
+          <input type="radio" name="provider" value="kaspi" checked>
+          <span class="pay__box"><b>Kaspi</b><small data-t="kaspiSub"></small></span>
+        </label>
+        <label class="pay__opt" id="cardOption" hidden>
+          <input type="radio" name="provider" value="halyk">
+          <span class="pay__box"><b data-t="cardOnline"></b><small data-t="cardSub"></small></span>
+        </label>
+      </fieldset>
+      <p class="checkout__test" id="testMode" hidden data-t="testMode"></p>
+      <p class="checkout__error" id="checkoutError" role="alert"></p>
+      <button type="submit" class="cta" id="submitOrder"><span id="submitLabel"></span></button>
+    </form>
     <button type="button" class="sheet__clear" id="clearAll" data-t="clear"></button>
   </section>
 </div>
 
-<script src="data.js"></script>
+<a class="myorder" id="myOrder" hidden></a>
+
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
