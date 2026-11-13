@@ -14,6 +14,8 @@
 //   KITCHEN_PIN          — PIN экрана кухни (обязательно)
 //   HALYK_MODE           — "test" (по умолчанию) или "prod"
 //   HALYK_CLIENT_ID, HALYK_CLIENT_SECRET, HALYK_TERMINAL — боевые ключи Halyk ePay (для prod)
+//   HALYK_QR_CLIENT_ID, HALYK_QR_CLIENT_SECRET, HALYK_QR_TERMINAL — ключи QR-оплаты (Homebank),
+//                        если Halyk выдал для неё отдельный терминал; иначе берутся ключи выше
 //   POSTLINK_SECRET      — случайная строка для защиты адреса уведомлений Halyk
 //   SITE_URL             — адрес сайта, по умолчанию https://tezas-menu.vercel.app
 //   MENU_URL             — адрес menu.json, по умолчанию SITE_URL/menu.json
@@ -52,12 +54,20 @@ const HALYK_PROD = {
   clientSecret: env("HALYK_CLIENT_SECRET"),
   terminal: env("HALYK_TERMINAL"),
 };
+// QR-оплата в приложении Homebank: тестовые ключи QR-терминала из той же документации.
+const HALYK_QR_TEST = { ...HALYK_TEST, clientId: "EPAY-TEST-PAYMENT", clientSecret: "gG1uIMT$cTZJS&Lm", terminal: "5f7bdf8b-f34c-4aed-bd0c-47fa1e323496" };
+const HALYK_QR_PROD = {
+  ...HALYK_PROD,
+  clientId: env("HALYK_QR_CLIENT_ID") || env("HALYK_CLIENT_ID"),
+  clientSecret: env("HALYK_QR_CLIENT_SECRET") || env("HALYK_CLIENT_SECRET"),
+  terminal: env("HALYK_QR_TERMINAL") || env("HALYK_TERMINAL"),
+};
 const halykMode = () => (env("HALYK_MODE") === "prod" ? "prod" : "test");
 const halyk = () => (halykMode() === "prod" ? HALYK_PROD : HALYK_TEST);
+const halykQr = () => (halykMode() === "prod" ? HALYK_QR_PROD : HALYK_QR_TEST);
 const HALYK_SCOPE = "webapi usermanagement email_send verification statement statistics payment";
 
-async function halykToken(extra: Record<string, string> = {}) {
-  const h = halyk();
+async function halykToken(extra: Record<string, string> = {}, h = halyk()) {
   const form = new FormData();
   const fields: Record<string, string> = {
     grant_type: "client_credentials",
@@ -76,9 +86,9 @@ async function halykToken(extra: Record<string, string> = {}) {
 }
 
 // Проверка статуса платежа у банка. Возвращает "paid" | "failed" | "pending".
-async function halykCheck(invoiceId: string): Promise<{ state: "paid" | "failed" | "pending"; ref?: string; amount?: number }> {
-  const tok = await halykToken();
-  const r = await fetch(`${halyk().api}/check-status/payment/transaction/${invoiceId}`, {
+async function halykCheck(invoiceId: string, h = halyk()): Promise<{ state: "paid" | "failed" | "pending"; ref?: string; amount?: number }> {
+  const tok = await halykToken({}, h);
+  const r = await fetch(`${h.api}/check-status/payment/transaction/${invoiceId}`, {
     headers: { Authorization: `Bearer ${tok.access_token}` },
   });
   if (!r.ok) return { state: "pending" };
@@ -92,6 +102,42 @@ async function halykCheck(invoiceId: string): Promise<{ state: "paid" | "failed"
   }
   if (j.resultCode === "101") return { state: "failed" };
   return { state: "pending" };
+}
+
+// Homebank: создать QR-счёт. Возвращает ссылку в приложение (с суммой) и строку QR-кода.
+async function homebankCreate(invoiceId: string, amount: number, number: number, lang: string) {
+  const h = halykQr();
+  const tok = await halykToken({ invoiceID: invoiceId, amount: String(amount), currency: "KZT" }, h);
+  const postLink = `${FUNCTION_URL}/halyk/postlink?s=${encodeURIComponent(env("POSTLINK_SECRET"))}`;
+  const r = await fetch(`${h.api}/payment/qr/generate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tok.access_token}`, "content-type": "application/json" },
+    body: JSON.stringify({ postLink, failurePostLink: postLink, description: `TEZAS order ${number}`, language: lang === "kk" ? "kz" : "ru" }),
+  });
+  if (!r.ok) throw new Error(`homebank_qr_${r.status}`);
+  const j = await r.json();
+  if (!j.homebankLink || !j.qrcode) throw new Error("homebank_qr_empty");
+  return { token: tok.access_token as string, link: j.homebankLink as string, qrcode: j.qrcode as string };
+}
+
+// Homebank: статус QR-счёта по токену, выданному при создании (живёт 20 минут).
+async function homebankStatus(token: string): Promise<{ state: "paid" | "failed" | "pending"; amount?: number }> {
+  const r = await fetch(`${halykQr().api}/qr`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return { state: "pending" };
+  const j = await r.json();
+  const s = String(j.status || "").toUpperCase();
+  if (s === "PAID") return { state: "paid", amount: Number(j.amount) };
+  if (["REJECTED", "CLOSED", "RETURN"].includes(s)) return { state: "failed" };
+  return { state: "pending" };
+}
+
+// Проверка оплаты Homebank: сначала живой статус QR, затем подтверждение транзакции у банка.
+async function homebankCheck(o: { invoice_id: string; qr_token: string | null }) {
+  if (o.qr_token) {
+    const s = await homebankStatus(o.qr_token);
+    if (s.state !== "paid") return s;
+  }
+  return await halykCheck(o.invoice_id, halykQr());
 }
 
 // ---------- Меню и цены ----------
@@ -139,10 +185,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // То, что видит гость и кухня. Без секретов и служебных полей.
 function publicOrder(o: Record<string, unknown>) {
+  const pay = o.provider === "homebank" && o.status === "awaiting_payment" && o.qr_link
+    ? { link: o.qr_link, qrcode: o.qr_code } : null;
   return {
     id: o.id, number: o.number, status: o.status, mode: o.mode, table_no: o.table_no,
     items: o.items, total: o.total, gift: o.gift, provider: o.provider, lang: o.lang,
-    created_at: o.created_at, paid_at: o.paid_at, updated_at: o.updated_at,
+    created_at: o.created_at, paid_at: o.paid_at, updated_at: o.updated_at, pay,
   };
 }
 
@@ -161,7 +209,7 @@ async function createOrder(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return fail("bad_json"); }
   const mode = body.mode === "pickup" ? "pickup" : body.mode === "table" ? "table" : null;
-  const provider = body.provider === "kaspi" ? "kaspi" : body.provider === "halyk" ? "halyk" : null;
+  const provider = ["kaspi", "halyk", "homebank"].includes(body.provider) ? body.provider as string : null;
   const lang = body.lang === "kk" ? "kk" : "ru";
   if (!mode) return fail("bad_mode");
   if (!provider) return fail("bad_provider");
@@ -197,6 +245,20 @@ async function createOrder(req: Request) {
 
   if (provider === "kaspi") {
     return json({ order: publicOrder(order), payment: { type: "kaspi_counter" } });
+  }
+
+  if (provider === "homebank") {
+    try {
+      const qr = await homebankCreate(order.invoice_id, total, order.number, lang);
+      const { data: saved } = await db.from("orders")
+        .update({ qr_token: qr.token, qr_link: qr.link, qr_code: qr.qrcode })
+        .eq("id", order.id).select("*").single();
+      return json({ order: publicOrder(saved ?? order), payment: { type: "homebank", link: qr.link, qrcode: qr.qrcode, mode: halykMode() } });
+    } catch (e) {
+      console.error(e);
+      await markFailed(order.id);
+      return fail("homebank_unavailable", 502);
+    }
   }
 
   // Halyk: токен на конкретный счёт + объект для платёжной страницы
@@ -242,16 +304,19 @@ async function getOrder(id: string) {
   let { data: o } = await db.from("orders").select("*").eq("id", id).maybeSingle();
   if (!o) return fail("not_found", 404);
 
-  // Если уведомление от банка не дошло — сами спрашиваем статус (не чаще раза в 8 секунд).
-  const stale = !o.last_check_at || Date.now() - new Date(o.last_check_at).getTime() > 8000;
+  // Если уведомление от банка не дошло — сами спрашиваем статус.
+  // Карта — не чаще раза в 8 секунд; QR Homebank показывает живой статус, его спрашиваем раз в 3 секунды.
   const age = Date.now() - new Date(o.created_at).getTime();
-  if (o.provider === "halyk" && o.status === "awaiting_payment" && o.invoice_id && stale && age > 5000) {
+  const online = o.provider === "halyk" || o.provider === "homebank";
+  const minGap = o.provider === "homebank" ? 3000 : 8000;
+  const due = !o.last_check_at || Date.now() - new Date(o.last_check_at).getTime() > minGap;
+  if (online && o.status === "awaiting_payment" && o.invoice_id && due && age > 3000) {
     await db.from("orders").update({ last_check_at: new Date().toISOString() }).eq("id", o.id);
     try {
-      const c = await halykCheck(o.invoice_id);
+      const c = o.provider === "homebank" ? await homebankCheck(o) : await halykCheck(o.invoice_id);
       if (c.state === "paid" && c.amount === o.total) await markPaid(o.id, c.ref);
-      // Неоплаченный счёт старше 30 минут считаем неудачным
-      else if (c.state === "failed" || age > 30 * 60_000) await markFailed(o.id);
+      // QR Homebank живёт 20 минут, ссылка на карту — до 30
+      else if (c.state === "failed" || age > (o.provider === "homebank" ? 21 : 30) * 60_000) await markFailed(o.id);
     } catch (e) { console.error(e); }
     ({ data: o } = await db.from("orders").select("*").eq("id", id).maybeSingle());
   }
@@ -268,13 +333,14 @@ async function halykPostlink(req: Request, url: URL) {
   const invoiceId = String(body.invoiceId ?? body.invoiceID ?? "");
   const secretHash = String(body.secret_hash ?? "");
   if (!invoiceId) return fail("bad_request");
-  const { data: o } = await db.from("orders").select("id, total, status, secret_hash").eq("invoice_id", invoiceId).maybeSingle();
+  const { data: o } = await db.from("orders").select("id, total, status, secret_hash, provider, invoice_id, qr_token").eq("invoice_id", invoiceId).maybeSingle();
   if (!o) return json({ ok: true }); // чужой или старый счёт — просто подтверждаем получение
-  if (!o.secret_hash || !safeEqual(secretHash, o.secret_hash)) return fail("forbidden", 403);
+  // У QR-счетов Homebank нет secret_hash: для них единственная проверка — запрос статуса у банка ниже
+  if (o.provider !== "homebank" && (!o.secret_hash || !safeEqual(secretHash, o.secret_hash))) return fail("forbidden", 403);
   if (o.status !== "awaiting_payment") return json({ ok: true });
 
   // Не верим телу уведомления на слово — перепроверяем у банка
-  const c = await halykCheck(invoiceId);
+  const c = o.provider === "homebank" ? await homebankCheck(o) : await halykCheck(invoiceId);
   if (c.state === "paid" && c.amount === o.total) await markPaid(o.id, c.ref);
   else if (c.state === "failed") await markFailed(o.id);
   return json({ ok: true });

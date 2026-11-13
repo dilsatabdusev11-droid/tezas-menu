@@ -128,7 +128,7 @@
       </header>
       <ul class="items">${items}</ul>
       ${o.gift ? '<p class="gift">+ Лимонад 0,4 л в подарок</p>' : ""}
-      <p class="meta">${money(o.total)} · ${o.provider === "kaspi" ? "Kaspi" : "Halyk"}</p>
+      <p class="meta">${money(o.total)} · ${({ kaspi: "Kaspi", homebank: "Homebank", halyk: "Карта" })[o.provider] || o.provider}</p>
       <div class="acts">${acts}</div>
     </article>`;
   }

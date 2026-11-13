@@ -498,7 +498,8 @@ main {
 .field input:focus { outline: 3px solid var(--yellow); outline-offset: 1px; }
 
 /* Способ оплаты */
-.pay { display: grid !important; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pay { display: grid !important; grid-template-columns: 1fr; gap: 8px; }
+.pay .pay__box { min-height: 60px; padding: 10px 14px; }
 .pay legend { grid-column: 1 / -1; }
 .pay__opt { position: relative; }
 .pay__box {

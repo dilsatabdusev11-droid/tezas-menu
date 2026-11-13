@@ -89,3 +89,12 @@
   .ticket__head { animation: drop .5s var(--out, ease) both; }
   .state.ready h1 { animation: slap .6s var(--spring, ease) both; }
 }
+
+/* Оплата в Homebank: кнопка в приложение и QR для компьютера */
+.cta--app { background: #00805f; }
+.qrbox { display: none; margin-top: 16px; text-align: center; }
+.qrbox .qr { width: 220px; margin: 0 auto; padding: 10px; background: #fff; border: 2px solid var(--ink); border-radius: 14px; }
+.qrbox .qr svg { display: block; width: 100%; height: auto; }
+.qrbox p { margin: 10px 0 0; font-size: 14px; color: var(--grey); }
+/* На компьютере QR — основной способ, на телефоне — кнопка */
+@media (hover: hover) and (pointer: fine) { .qrbox { display: block; } }

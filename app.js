@@ -34,8 +34,10 @@
       tableNo: "Үстел нөмірі",
       payment: "Төлем",
       kaspiSub: "Кассада Kaspi QR арқылы",
-      cardOnline: "Картамен онлайн",
-      cardSub: "Halyk · Visa, Mastercard",
+      cardOnline: "Кез келген банк картасы",
+      cardSub: "Visa, Mastercard, Apple Pay, Google Pay",
+      homebankSub: "Halyk қосымшасы сомамен бірге ашылады",
+      payApp: (n) => `Homebank-те ${n} төлеу`,
       testMode: "Тест режимі: ақша есептен шығарылмайды.",
       payCard: (n) => `${n} төлеу`,
       sendKaspi: "Тапсырыс беру",
@@ -72,8 +74,10 @@
       tableNo: "Номер столика",
       payment: "Оплата",
       kaspiSub: "На кассе по Kaspi QR",
-      cardOnline: "Картой онлайн",
-      cardSub: "Halyk · Visa, Mastercard",
+      cardOnline: "Картой любого банка",
+      cardSub: "Visa, Mastercard, Apple Pay, Google Pay",
+      homebankSub: "Откроется приложение Halyk с суммой",
+      payApp: (n) => `Оплатить ${n} в Homebank`,
       testMode: "Тестовый режим: деньги не списываются.",
       payCard: (n) => `Оплатить ${n}`,
       sendKaspi: "Оформить заказ",
@@ -307,8 +311,11 @@
     const { sum } = totals();
     const mode = fieldVal("mode"), provider = fieldVal("provider");
     $("#tableField").hidden = mode !== "table";
-    $("#testMode").hidden = !(provider === "halyk" && config.halyk === "test");
-    $("#submitLabel").textContent = sending ? t.sending : provider === "halyk" ? t.payCard(money(sum)) : t.sendKaspi;
+    $("#testMode").hidden = !(provider !== "kaspi" && config.halyk === "test");
+    $("#submitLabel").textContent = sending ? t.sending
+      : provider === "halyk" ? t.payCard(money(sum))
+      : provider === "homebank" ? t.payApp(money(sum))
+      : t.sendKaspi;
     $("#submitOrder").disabled = sending;
     form.classList.toggle("busy", sending);
   }
@@ -355,6 +362,11 @@
       const res = await r.json().catch(() => ({}));
       if (!r.ok || !res.order) throw new Error(res.error || "http_" + r.status);
       rememberOrder(res.order);
+      if (res.payment && res.payment.type === "homebank") {
+        // Страница заказа сама откроет приложение Homebank и покажет QR для компьютера
+        location.href = `order.html?id=${res.order.id}&open=1`;
+        return;
+      }
       if (res.payment && res.payment.type === "halyk") {
         try {
           await loadScript(res.payment.script);
@@ -367,7 +379,7 @@
       }
       location.href = `order.html?id=${res.order.id}`;
     } catch (err) {
-      showError(err instanceof TypeError ? t.errNet : err.message === "halyk_unavailable" ? t.errHalyk : t.errGeneric);
+      showError(err instanceof TypeError ? t.errNet : /^(halyk|homebank)_unavailable$/.test(err.message) ? t.errHalyk : t.errGeneric);
       sending = false; updateCheckout();
     }
   }
@@ -387,8 +399,9 @@
     const ordering = Boolean(c.kitchen) || testFlag;
     form.hidden = !ordering;
     $("#cashierHint").hidden = ordering;
-    $("#cardOption").hidden = !(c.halyk === "prod" || testFlag);
-    $("#cardOption").closest(".pay").classList.toggle("single", $("#cardOption").hidden);
+    const online = c.halyk === "prod" || testFlag;
+    $$("[data-online]").forEach((el) => (el.hidden = !online));
+    form.querySelector(".pay").classList.toggle("single", !online);
     updateCheckout();
   }).catch(() => {});
 

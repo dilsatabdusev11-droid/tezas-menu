@@ -17,8 +17,11 @@
       steps: ["Төлем", "Дайындалуда", "Дайын"],
       gift: "+ Лимонад 0,4 л — сыйлық",
       total: "Барлығы",
-      paidBy: { kaspi: "Kaspi", halyk: "Карта · Halyk" },
+      paidBy: { kaspi: "Kaspi", halyk: "Карта", homebank: "Homebank" },
+      openApp: "Homebank-ті ашу",
+      scanHint: "Немесе бұл QR-ды Homebank қосымшасында сканерлеңіз",
       st: {
+        awaiting_payment_homebank: (o) => ["Homebank-те төлеңіз", `Halyk қосымшасы ${money(o.total)} сомамен ашылады. Төлегеннен кейін осы бетке оралыңыз — тапсырыс өзі асханаға кетеді.`],
         awaiting_payment_kaspi: (o) => ["Кассада төлеңіз", `Кассаға барып, №${o.number} нөмірін айтыңыз және ${money(o.total)} соманы Kaspi QR арқылы төлеңіз. Төлемнен кейін тапсырыс асханаға жіберіледі.`],
         awaiting_payment_halyk: () => ["Төлемді тексерудеміз…", "Бірнеше секунд күтіңіз."],
         failed: () => ["Төлем өтпеді", "Ақша есептен шығарылмады. Мәзірге оралып, қайталап көріңіз."],
@@ -41,8 +44,11 @@
       steps: ["Оплата", "Готовится", "Готово"],
       gift: "+ Лимонад 0,4 л в подарок",
       total: "Итого",
-      paidBy: { kaspi: "Kaspi", halyk: "Карта · Halyk" },
+      paidBy: { kaspi: "Kaspi", halyk: "Карта", homebank: "Homebank" },
+      openApp: "Открыть Homebank",
+      scanHint: "Или отсканируйте этот QR в приложении Homebank",
       st: {
+        awaiting_payment_homebank: (o) => ["Оплатите в Homebank", `Приложение Halyk откроется уже с суммой ${money(o.total)}. После оплаты вернитесь на эту страницу — заказ сам уйдёт на кухню.`],
         awaiting_payment_kaspi: (o) => ["Оплатите на кассе", `Подойдите к кассе, назовите номер ${o.number} и оплатите ${money(o.total)} по Kaspi QR. После оплаты заказ уйдёт на кухню.`],
         awaiting_payment_halyk: () => ["Проверяем оплату…", "Подождите несколько секунд."],
         failed: () => ["Оплата не прошла", "Деньги не списаны. Вернитесь в меню и попробуйте ещё раз."],
@@ -103,12 +109,35 @@
         <h1>${esc(title)}</h1>
         <p>${esc(text)}</p>
         ${bad ? `<a class="cta cta--link" href="./">${esc(t.retry)}</a>` : ""}
+        ${o.pay ? `<a class="cta cta--link cta--app" href="${esc(o.pay.link)}">${esc(t.openApp)}</a>
+          <div class="qrbox"><div class="qr" id="payQr"></div><p>${esc(t.scanHint)}</p></div>` : ""}
       </section>
       <ul class="lines">${items}</ul>
       ${o.gift ? `<p class="giftline">${esc(t.gift)}</p>` : ""}
       <p class="sumline"><span>${esc(t.total)}</span><strong>${money(o.total)}</strong></p>
       <p class="paidby">${esc(t.paidBy[o.provider] || "")}</p>
       <a class="backlink" href="./">${esc(t.back)}</a>`;
+    drawQr(o);
+  }
+
+  function drawQr(o) {
+    const box = document.getElementById("payQr");
+    if (!box || !o.pay || !window.qrcode) return;
+    const q = window.qrcode(0, "M");
+    q.addData(o.pay.qrcode);
+    q.make();
+    box.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  }
+
+  // Пришли с оформления заказа на телефоне — сразу открываем приложение Homebank (один раз)
+  let autoOpened = false;
+  function maybeOpenApp(o) {
+    const qs = new URLSearchParams(location.search);
+    if (autoOpened || !qs.has("open") || !o.pay || o.status !== "awaiting_payment") return;
+    autoOpened = true;
+    qs.delete("open");
+    history.replaceState(null, "", `${location.pathname}?${qs}`);
+    if (matchMedia("(pointer: coarse)").matches) location.href = o.pay.link;
   }
 
   function celebrate(kind) {
@@ -134,8 +163,10 @@
       }
       lastStatus = order.status;
       render();
+      maybeOpenApp(order);
     } catch { /* нет связи — повторим */ }
-    if (!order || !FINAL.includes(order.status)) timer = setTimeout(load, document.hidden ? 15000 : 4000);
+    const fast = order && order.provider === "homebank" && order.status === "awaiting_payment";
+    if (!order || !FINAL.includes(order.status)) timer = setTimeout(load, document.hidden ? 15000 : fast ? 3000 : 4000);
   }
 
   document.addEventListener("click", (e) => {
