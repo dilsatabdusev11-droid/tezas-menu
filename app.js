@@ -87,9 +87,9 @@
       const title = `<h2 class="cat__title">${esc(c[lang])}</h2>`;
       if (c.layout === "grid") {
         html += `<section class="cat" id="${c.id}" aria-labelledby="h-${c.id}">${title.replace("<h2", `<h2 id="h-${c.id}"`)}<ul class="grid">` +
-          c.items.map((it) => {
+          c.items.map((it, i) => {
             const name = it[lang], note = noteOf(it);
-            return `<li class="dish">
+            return `<li class="dish reveal" style="--i:${i % 4}">
               <div class="dish__photo"><img src="img/${it.img}.webp" alt="" loading="lazy" decoding="async" width="600" height="500"></div>
               <h3 class="dish__name">${esc(name)}</h3>${note ? `<p class="dish__note">${esc(note)}</p>` : ""}
               <div class="dish__foot"><span class="price">${money(it.price)}</span>${addBtn(it.id, name + (note ? ", " + note : ""))}</div>
@@ -97,27 +97,29 @@
           }).join("") + `</ul></section>`;
       } else if (c.layout === "combo") {
         html += `<section class="cat" id="${c.id}" aria-labelledby="h-${c.id}">${title.replace("<h2", `<h2 id="h-${c.id}"`)}<ul class="combo">` +
-          c.items.map((it) => `<li>
+          c.items.map((it, i) => `<li class="reveal" style="--i:${i % 4}">
               <img src="img/${it.img}.webp" alt="" loading="lazy" decoding="async" width="600" height="480">
               <div><h3 class="dish__name">${esc(it[lang])}</h3><p class="with">${t.combo}</p></div>
               <div class="side"><span class="price">${money(it.price)}</span>${addBtn(it.id, "Комбо: " + it[lang])}</div>
             </li>`).join("") + `</ul></section>`;
       } else {
         lists += `<section class="cat" id="${c.id}" aria-labelledby="h-${c.id}">${title.replace("<h2", `<h2 id="h-${c.id}"`)}<ul class="list">` +
-          c.items.map((it) => {
+          c.items.map((it, i) => {
             const name = it[lang], note = noteOf(it);
             const right = it.variants
               ? `<div class="vars">${it.variants.map((v) => `<span class="var"><small>${v.size}</small><span class="price">${money(v.price)}</span>${addBtn(v.id, name + " " + v.size)}</span>`).join("")}</div>`
               : `<span class="price">${money(it.price)}</span>${addBtn(it.id, name + (note ? " " + note : ""))}`;
-            return `<li><div class="grow"><h3 class="dish__name">${esc(name)}</h3>${note ? `<p class="dish__note">${esc(note)}</p>` : ""}</div>${right}</li>`;
+            return `<li class="reveal" style="--i:${i % 6}"><div class="grow"><h3 class="dish__name">${esc(name)}</h3>${note ? `<p class="dish__note">${esc(note)}</p>` : ""}</div>${right}</li>`;
           }).join("") + `</ul></section>`;
       }
     });
     $("#menu").innerHTML = html + `<div class="lists">${lists}</div>`;
 
-    $("#tabs").innerHTML = D.categories.map((c) => `<a class="tab" href="#${c.id}" data-tab="${c.id}">${esc(c[lang])}</a>`).join("");
+    $("#tabs").innerHTML = `<span class="tabs__pill" aria-hidden="true"></span>` +
+      D.categories.map((c) => `<a class="tab" href="#${c.id}" data-tab="${c.id}">${esc(c[lang])}</a>`).join("");
     $(".tabs").setAttribute("aria-label", t.tabsLabel);
     observeSections();
+    observeReveal();
   }
 
   function renderStatic() {
@@ -134,17 +136,27 @@
   // ---------- Подсчёт ----------
   const totals = () => Object.entries(cart).reduce((a, [id, n]) => ({ sum: a.sum + sku[id].price * n, count: a.count + n }), { sum: 0, count: 0 });
 
+  let prevSum = 0;
+  let pendingGift = false;
   function renderTray() {
     const t = T[lang];
     const { sum, count } = totals();
     $("#tray").hidden = count === 0;
-    if (!count) { closeSheet(); return; }
+    if (!count) { prevSum = 0; closeSheet(); return; }
     const left = D.promoThreshold - sum;
     const goal = $("#trayGoal");
     goal.textContent = left > 0 ? t.left(money(left)) : t.gift;
     goal.classList.toggle("done", left <= 0);
     $("#trayCount").textContent = t.items(count);
-    $("#traySum").textContent = money(sum);
+    const sumEl = $("#traySum");
+    if (sumEl.textContent && sumEl.textContent !== money(sum)) pop(sumEl);
+    sumEl.textContent = money(sum);
+    if (prevSum < D.promoThreshold && sum >= D.promoThreshold) {
+      // салют — в момент, когда блюдо долетит до стаканчика; без полёта — сразу
+      pendingGift = true;
+      setTimeout(() => { if (pendingGift) { pendingGift = false; celebrate(); } }, 900);
+    }
+    prevSum = sum;
     const p = Math.min(sum / D.promoThreshold, 1);
     $("#cupFill").setAttribute("y", String(40 - 31 * p));
 
@@ -191,11 +203,18 @@
     $("#sheet [data-close].icon-btn").focus();
   }
   function closeSheet() {
-    if ($("#sheet").hidden) return;
-    $("#sheet").hidden = true;
-    $("#trayOpen").setAttribute("aria-expanded", "false");
-    document.body.style.overflow = "";
-    if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    const sh = $("#sheet");
+    if (sh.hidden || sh.classList.contains("closing")) return;
+    const done = () => {
+      sh.classList.toggle("closing", false);
+      sh.hidden = true;
+      $("#trayOpen").setAttribute("aria-expanded", "false");
+      document.body.style.overflow = "";
+      if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    };
+    if (reduced()) return done();
+    sh.classList.add("closing");
+    setTimeout(done, 190);
   }
 
   // ---------- Активная вкладка при прокрутке ----------
@@ -206,6 +225,7 @@
       a.toggleAttribute("aria-current", false);
       if (on) {
         a.setAttribute("aria-current", "true");
+        movePill(a);
         const track = $("#tabs");
         const x = a.offsetLeft - track.clientWidth / 2 + a.clientWidth / 2;
         track.scrollTo({ left: x, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -223,19 +243,135 @@
     D.categories.forEach((c) => io.observe(document.getElementById(c.id)));
   }
 
+  // ---------- Анимации ----------
+  const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const SPRING = "cubic-bezier(.34, 1.56, .64, 1)";
+  const detach = (el) => el.parentNode && el.parentNode.removeChild(el);
+
+  function pop(el) {
+    if (reduced() || !el) return;
+    el.animate([{ transform: "scale(1)" }, { transform: "scale(1.22)" }, { transform: "scale(1)" }],
+      { duration: 360, easing: SPRING });
+  }
+  function popQty(id) {
+    const b = document.querySelector(`[data-inc="${id}"]`);
+    if (b) pop(b.parentElement.querySelector("output"));
+  }
+
+  // Блюда «приземляются» на бумагу, когда доходят до экрана
+  let revealIO;
+  let revealAll = false;
+  function observeReveal() {
+    revealIO && revealIO.disconnect();
+    const items = $$(".reveal, .cat__title");
+    if (reduced() || revealAll || !("IntersectionObserver" in window)) {
+      items.forEach((el) => el.classList.add("in", "settled"));
+      return;
+    }
+    revealIO = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        e.target.classList.add("in");
+        revealIO.unobserve(e.target);
+        setTimeout(() => e.target.classList.add("settled"), 1400);
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+    items.forEach((el) => revealIO.observe(el));
+  }
+
+  function movePill(tab) {
+    const pill = $(".tabs__pill");
+    if (!pill) return;
+    pill.style.width = tab.offsetWidth + "px";
+    pill.style.transform = `translateX(${tab.offsetLeft}px)`;
+    pill.classList.add("on");
+  }
+
+  // Фото блюда летит по дуге в полоску с суммой
+  function flyToTray(btn, firstAdd) {
+    if (reduced()) return;
+    const card = btn.closest("li");
+    const img = card && card.querySelector("img");
+    const run = () => {
+      const target = $(".tray__cup").getBoundingClientRect();
+      const from = (img || btn).getBoundingClientRect();
+      const w = img ? Math.min(from.width, 150) : 40;
+      const h = img ? w * 0.8 : 40;
+      const ghost = img ? img.cloneNode() : document.createElement("span");
+      ghost.className = img ? "fly" : "fly fly--dot";
+      if (!img) ghost.textContent = "+1";
+      ghost.removeAttribute && ghost.removeAttribute("loading");
+      Object.assign(ghost.style, {
+        width: w + "px", height: h + "px",
+        left: from.left + from.width / 2 - w / 2 + "px",
+        top: from.top + from.height / 2 - h / 2 + "px"
+      });
+      document.body.appendChild(ghost);
+      const dx = target.left + target.width / 2 - (from.left + from.width / 2);
+      const dy = target.top + target.height / 2 - (from.top + from.height / 2);
+      const lift = Math.min(160, Math.abs(dy) * 0.3 + 70);
+      const a = ghost.animate([
+        { transform: "translate(0,0) scale(1) rotate(0)", opacity: 1 },
+        { transform: `translate(${dx * 0.4}px, ${dy * 0.2 - lift}px) scale(.8) rotate(-14deg)`, opacity: 1, offset: 0.42 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.12) rotate(-32deg)`, opacity: 0.5 }
+      ], { duration: 660, easing: "cubic-bezier(.45, 0, .2, 1)" });
+      a.onfinish = () => {
+        detach(ghost);
+        if (pendingGift) { pendingGift = false; celebrate(); }
+        $(".tray__bar").animate([{ transform: "scale(1)" }, { transform: "scale(1.04)" }, { transform: "scale(1)" }],
+          { duration: 320, easing: SPRING });
+        $(".tray__cup").animate([{ transform: "rotate(0)" }, { transform: "rotate(-14deg)" }, { transform: "rotate(9deg)" }, { transform: "rotate(0)" }],
+          { duration: 480, easing: "ease-out" });
+      };
+    };
+    // первая позиция: дождаться, пока полоска выедет снизу
+    firstAdd ? setTimeout(run, 260) : run();
+  }
+
+  // Набрали на подарок: салют из лимонадных брызг
+  function celebrate() {
+    if (navigator.vibrate) navigator.vibrate([16, 40, 16]);
+    if (reduced()) return;
+    const r = $(".tray__cup").getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const colors = ["#ffc20e", "#e2231a", "#ffffff", "#ffc20e", "#000000"];
+    for (let k = 0; k < 26; k++) {
+      const sp = document.createElement("i");
+      sp.className = "spark";
+      sp.style.background = colors[k % colors.length];
+      sp.style.left = cx + "px"; sp.style.top = cy + "px";
+      if (k % 3 === 0) sp.style.borderRadius = "50%";
+      document.body.appendChild(sp);
+      const ang = (-Math.PI / 2) + (Math.random() - 0.5) * Math.PI * 1.25;
+      const dist = 70 + Math.random() * 120;
+      const x = Math.cos(ang) * dist, y = Math.sin(ang) * dist;
+      sp.animate([
+        { transform: "translate(-50%,-50%) scale(1) rotate(0)", opacity: 1 },
+        { transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${Math.random() * 540}deg)`, opacity: 1, offset: 0.6 },
+        { transform: `translate(calc(-50% + ${x * 1.1}px), calc(-50% + ${y + 90}px)) scale(.4) rotate(${Math.random() * 720}deg)`, opacity: 0 }
+      ], { duration: 950 + Math.random() * 400, easing: "cubic-bezier(.15, .7, .3, 1)" }).onfinish = () => detach(sp);
+    }
+    $("#trayGoal").animate([{ transform: "scale(1)" }, { transform: "scale(1.12) rotate(-2deg)" }, { transform: "scale(1)" }],
+      { duration: 520, easing: SPRING });
+  }
+
   // ---------- События ----------
   document.addEventListener("click", (e) => {
     const add = e.target.closest("[data-add]");
     if (add) {
+      const first = totals().count === 0;
       change(add.dataset.add, 1);
-      add.classList.remove("bump"); void add.offsetWidth; add.classList.add("bump");
+      add.classList.toggle("bump", false); void add.offsetWidth; add.classList.add("bump");
+      if (navigator.vibrate) navigator.vibrate(8);
+      flyToTray(add, first);
       return;
     }
-    const inc = e.target.closest("[data-inc]"); if (inc) return change(inc.dataset.inc, 1);
-    const dec = e.target.closest("[data-dec]"); if (dec) return change(dec.dataset.dec, -1);
+    const inc = e.target.closest("[data-inc]"); if (inc) { change(inc.dataset.inc, 1); return popQty(inc.dataset.inc); }
+    const dec = e.target.closest("[data-dec]"); if (dec) { change(dec.dataset.dec, -1); return popQty(dec.dataset.dec); }
     const l = e.target.closest("[data-lang]");
     if (l && l.dataset.lang !== lang) {
       lang = l.dataset.lang; localStorage.setItem("tezas-lang", lang);
+      revealAll = true;
       renderStatic(); renderMenu(); renderTray();
       return;
     }
@@ -255,5 +391,7 @@
 
   renderStatic();
   renderMenu();
+  prevSum = totals().sum;
   renderTray();
+  addEventListener("resize", () => { const a = $('.tab[aria-current="true"]'); a && movePill(a); });
 })();

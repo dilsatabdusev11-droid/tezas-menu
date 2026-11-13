@@ -179,6 +179,7 @@ a { color: inherit; }
   border-bottom: 1px solid var(--line);
 }
 .tabs__track {
+  position: relative;
   display: flex;
   gap: 6px;
   max-width: var(--max);
@@ -204,7 +205,21 @@ a { color: inherit; }
   white-space: nowrap;
   transition: background-color .18s, color .18s;
 }
-.tab[aria-current="true"] { background: var(--ink); color: var(--yellow); }
+.tab { position: relative; z-index: 1; }
+.tab[aria-current="true"] { color: var(--yellow); }
+/* чёрная «таблетка» переезжает под активную вкладку */
+.tabs__pill {
+  position: absolute;
+  z-index: 0;
+  top: 10px;
+  left: 0;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+}
+.tabs__pill.on { opacity: 1; }
 
 /* ---------- Sections ---------- */
 main {
@@ -446,12 +461,142 @@ main {
 .sheet__hint { margin: 14px 0 0; color: var(--grey); font-size: 14px; font-weight: 600; }
 .sheet__clear { margin-top: 10px; min-height: 44px; padding: 0; border: 0; background: none; color: var(--red-deep); font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
 
-/* ---------- Единственная анимация загрузки: мазки «влетают» ---------- */
+/* ---------- Движение ----------
+   Токены: вход — пружина, выход быстрее входа, шаг волны 45 мс.
+   При «уменьшить движение» всё ниже отключается. */
+:root {
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --out: cubic-bezier(.2, .8, .2, 1);
+  --in: cubic-bezier(.5, 0, .75, 0);
+  --step: 45ms;
+}
+
+/* Подчёркивание-молния у заголовков разделов */
+.cat__title::after {
+  content: "";
+  display: block;
+  width: 84px;
+  height: 8px;
+  margin-top: 8px;
+  background: var(--yellow);
+  clip-path: polygon(0 55%, 62% 30%, 60% 0, 100% 40%, 66% 70%, 67% 100%, 2% 80%);
+  transform-origin: left center;
+}
+
+/* Летящее в корзину фото и искры подарка */
+.fly {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 10px rgba(0, 0, 0, .3));
+  will-change: transform, opacity;
+}
+.fly--dot {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  font-weight: 900;
+  font-size: 14px;
+}
+.spark {
+  position: fixed;
+  z-index: 61;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .slashes .s { stroke-dasharray: 600; stroke-dashoffset: 600; animation: swipe .6s var(--ease) forwards; }
+  /* 1. Загрузка: одна сцена — мазки, заголовок «врезается», наклейка шлёпается */
+  .slashes .s { stroke-dasharray: 600; stroke-dashoffset: 600; animation: swipe .6s var(--out) forwards; }
   .slashes .s2 { animation-delay: .12s; }
   .slashes .s3 { animation-delay: .24s; }
   @keyframes swipe { to { stroke-dashoffset: 0; } }
+
+  .hero__bar { animation: drop .5s var(--out) both; }
+  .hero__title span { animation: slam .7s var(--spring) both; }
+  .hero__title .hero__kk { animation-delay: .12s; }
+  .hero__title .hero__ru { animation-delay: .24s; }
+  .hero__title::after { animation: draw .45s var(--out) .5s both; transform-origin: left center; }
+  .hero__tag { animation: track .7s var(--out) .55s both; }
+  .sticker { animation: slap .6s var(--spring) .75s both; }
+  .promo { animation: drop .5s var(--out) .9s both; }
+  .promo__cup { animation: wiggle .7s ease-out 1.35s both; transform-origin: 50% 90%; }
+
+  @keyframes drop { from { opacity: 0; transform: translateY(-14px); } }
+  @keyframes slam { from { opacity: 0; transform: translateX(-60px) skewX(-18deg); } }
+  @keyframes draw { from { transform: scaleX(0); } }
+  @keyframes track { from { opacity: 0; letter-spacing: .9em; } }
+  @keyframes slap { from { opacity: 0; transform: rotate(-16deg) scale(1.6); } }
+  @keyframes wiggle { 25% { transform: rotate(-16deg); } 55% { transform: rotate(10deg); } 80% { transform: rotate(-4deg); } }
+
+  /* 2. Прокрутка: блюдо «приземляется» на бумагу, текст подтягивается следом */
+  .js .dish.reveal .dish__photo img { opacity: 0; transform: translateY(-34px) scale(1.1) rotate(-6deg); }
+  .js .dish.reveal .dish__name,
+  .js .dish.reveal .dish__note,
+  .js .dish.reveal .dish__foot { opacity: 0; transform: translateY(10px); }
+  .js .dish.reveal.in .dish__photo img {
+    opacity: 1;
+    transform: none;
+    transition: opacity .3s var(--out) calc(var(--i) * var(--step)), transform .75s var(--spring) calc(var(--i) * var(--step));
+  }
+  .js .dish.reveal.in .dish__name,
+  .js .dish.reveal.in .dish__note,
+  .js .dish.reveal.in .dish__foot {
+    opacity: 1;
+    transform: none;
+    transition: opacity .4s var(--out), transform .5s var(--out);
+    transition-delay: calc(var(--i) * var(--step) + 140ms);
+  }
+
+  .js .combo li.reveal, .js .list li.reveal { opacity: 0; transform: translateX(-18px); }
+  .js .combo li.reveal.in, .js .list li.reveal.in {
+    opacity: 1;
+    transform: none;
+    transition: opacity .4s var(--out), transform .55s var(--spring);
+    transition-delay: calc(var(--i) * var(--step));
+  }
+  .js .combo li.reveal img { transform: scale(.6) rotate(-12deg); }
+  .js .combo li.reveal.in img { transform: none; transition: transform .6s var(--spring) calc(var(--i) * var(--step) + 80ms); }
+
+  .js .cat__title { opacity: 0; transform: translateX(-24px) skewX(-10deg); }
+  .js .cat__title.in { opacity: 1; transform: none; transition: opacity .35s var(--out), transform .6s var(--spring); }
+  .js .cat__title::after { transform: scaleX(0); }
+  .js .cat__title.in::after { transform: none; transition: transform .45s var(--out) .25s; }
+
+  /* 3. Отклик: вкладки, кнопки, фото под курсором */
+  .tabs__pill { transition: transform .45s var(--spring), width .45s var(--spring), opacity .2s; }
+  .tab { transition: color .25s var(--out); }
+  .add { transition: transform .18s var(--spring), background-color .2s; }
+  .add:active { transform: scale(.86); }
+  .add[data-count]::after { animation: badge .4s var(--spring); }
+  @keyframes badge { from { transform: scale(0); } }
+
+  /* после «приземления» убираем задержки волны, чтобы наведение откликалось сразу */
+  .js .dish.reveal.settled .dish__photo img { transition: transform .45s var(--spring), filter .45s var(--out); }
+
+  @media (hover: hover) and (pointer: fine) {
+    .dish__photo img { transition: transform .45s var(--spring), filter .45s var(--out); }
+    .dish:hover .dish__photo img,
+    .js .dish.reveal.settled:hover .dish__photo img {
+      transform: translateY(-8px) rotate(-3deg) scale(1.04);
+      filter: drop-shadow(0 18px 14px rgba(60, 30, 0, .26));
+    }
+    .add:hover { background: var(--red); }
+  }
+
+  /* 4. Шторка: открытие пружиной, закрытие быстрее */
+  .sheet.closing .sheet__panel { animation: sink .19s var(--in) forwards; }
+  .sheet.closing .sheet__scrim { animation: fadeout .19s linear forwards; }
+  @keyframes sink { to { transform: translateY(100%); } }
+  @keyframes fadeout { to { opacity: 0; } }
+  .sheet__panel { animation: rise .42s var(--spring); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
